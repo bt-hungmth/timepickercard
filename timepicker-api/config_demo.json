@@ -1,0 +1,9 @@
+{
+  "slackToken" 		: "GetThisTokenInAPIOfSlack",
+  "slackChannel" 	: "betech_assistant",
+  "slackUsername" 	: "timepiker",
+  "slackIconUrl" 	: "http://www.app-trailer.com/appicons/android/100x100/com.speaktoit.assistant.png",
+  "dbuser" 			: "root",
+  "dbpass" 			: "123456",
+  "dbname" 			: "dbname"
+}
