@@ -1,126 +1,134 @@
-
-/**
- *  Created by Hungmth
- */
-
-#include <Arduino.h>
-#include "MFRC522.h"
+#include <SPI.h>
+#include <SoftwareSerial.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WiFiMulti.h>
 #include <ESP8266HTTPClient.h>
-ESP8266WiFiMulti WiFiMulti;
+#include <Wire.h>
+
+const char* ssid = "wifiname";
+const char* password = "wifip";
+
+SoftwareSerial rfid = SoftwareSerial(0, 2);
+
+// variables to keep state
+int readVal = 0; // individual character read from serial
+unsigned int readData[10]; // data read from serial
+int counter = -1; // counter to keep position in the buffer
+char tagId[11]; // final tag ID converted to a string
 
 int ledWifi = 4; // GPIO4 - D2
 int ledSuccess = 5; // GPI05 - D1
-#define RST_PIN 15 // RST-PIN for RC522 - RFID - SPI - Modul GPIO15 
-#define SS_PIN  2  // SDA-PIN for RC522 - RFID - SPI - Modul GPIO2 
-MFRC522 mfrc522(SS_PIN, RST_PIN);   // Create MFRC522 instance
 
-void dump_byte_array(String &cardID, byte *buffer, byte bufferSize) {
-  for (byte i = 0; i < bufferSize; i++) {
-    cardID+=buffer[i] < 0x10 ? " 0" : " ";
-    cardID+=buffer[i], HEX;
+void setup() {
+
+  Serial.begin(9600);
+  rfid.begin(9600);
+  
+  //LED
+  pinMode(ledWifi, OUTPUT);
+  digitalWrite(ledWifi, LOW);
+  pinMode(ledSuccess, OUTPUT);
+  digitalWrite(ledSuccess, LOW);
+    
+  Serial.println("RFID Ready to listen");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(ssid, password);
+
+  Serial.println("Connecting to WiFi");
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("");
+  Serial.println("WiFi connected");
+  Serial.println(WiFi.localIP());
+  digitalWrite(ledSuccess, HIGH);
+  delay(500);
+}
+
+
+// convert the int values read from serial to ASCII chars
+void parseTag() {
+  int i;
+  for (i = 0; i < 10; ++i) {
+    tagId[i] = readData[i];
+  }
+  tagId[10] = 0;
+}
+
+// once a whole tag is read, process it
+void processTag() {
+  // convert id to a string
+  parseTag();
+  
+  // print it
+  printTag();
+
+}
+
+void printTag() {
+  Serial.print("Tag value: ");
+  Serial.println(tagId);
+  
+  String url = "http://163.44.150.246:3000/check?card=";
+  url += tagId;
+  HTTPClient http;
+  http.begin(url);
+  int httpCode = http.GET();
+  if(httpCode == HTTP_CODE_OK)
+  {
+      Serial.print("HTTP response code ");
+      Serial.println(httpCode);
+      String response = http.getString();
+      Serial.println(response);
+      if (response == "success") {
+        digitalWrite(ledSuccess, HIGH);
+        delay(1000);
+      }
+  }
+  else
+  {
+     Serial.println("Error in HTTP request");
+  }
+  http.end();
+}
+
+// this function clears the rest of data on the serial, to prevent multiple scans
+void clearSerial() {
+  while (rfid.read() >= 0) {
+    ; // do nothing
   }
 }
 
-
-String urlencode(String str)
-{
-    String encodedString="";
-    char c;
-    char code0;
-    char code1;
-    char code2;
-    for (int i =0; i < str.length(); i++){
-      c=str.charAt(i);
-      if (c == ' '){
-        encodedString+= '+';
-      } else if (isalnum(c)){
-        encodedString+=c;
-      } else{
-        code1=(c & 0xf)+'0';
-        if ((c & 0xf) >9){
-            code1=(c & 0xf) - 10 + 'A';
-        }
-        c=(c>>4)&0xf;
-        code0=c+'0';
-        if (c > 9){
-            code0=c - 10 + 'A';
-        }
-        code2='\0';
-        encodedString+='%';
-        encodedString+=code0;
-        encodedString+=code1;
-        //encodedString+=code2;
-      }
-      yield();
-    }
-    return encodedString;
-}
-
-void setup() {
-    delay(1);                        // give RF section time to shutdown
-    Serial.begin(9600);              // turn off ESP8266 RF
-    //LED
-    pinMode(ledWifi, OUTPUT);
-    digitalWrite(ledWifi, LOW);
-    pinMode(ledSuccess, OUTPUT);
-    digitalWrite(ledSuccess, LOW);
-    
-    SPI.begin();
-    mfrc522.PCD_Init();
-    Serial.println("Run");
-    WiFiMulti.addAP("be-tech", "be-tech153");
-    Serial.flush();
-}
-
 void loop() {
-  /**
-   * GET
-   * */
-    // wait for WiFi connection
-    if((WiFiMulti.run() == WL_CONNECTED)) {
-        digitalWrite(ledSuccess, LOW);
-        if ( ! mfrc522.PICC_IsNewCardPresent()) {
-          delay(50);
-          return;
-        }
-        // Select one of the cards
-        if ( ! mfrc522.PICC_ReadCardSerial()) {
-          delay(50);
-          return;
-        }
-        String cardID;
-        dump_byte_array(cardID, mfrc522.uid.uidByte, mfrc522.uid.size);
-        String url = "http://127.0.0.1:3000/check?card="+urlencode(cardID);
-        Serial.println(url);`
-        HTTPClient http;
-        //Serial.print("[HTTP] begin...\n");
-        // configure traged server and url
-        http.begin(url); //HTTP
-        //Serial.print("[HTTP] GET...\n");
-        // start connection and send HTTP header
-        int httpCode = http.GET();
-        // httpCode will be negative on error
-        if(httpCode > 0) {
-            // HTTP header has been send and Server response header has been handled
-            Serial.printf("[HTTP] GET... code: %d\n", httpCode);
-            // file found at server
-            if(httpCode == HTTP_CODE_OK) {
-                String result = http.getString();
-                Serial.println(result);
-                if (result == "success") {
-                  digitalWrite(ledSuccess, HIGH);
-                  delay(500);
-                }
-            }
-        } else {
-            Serial.printf("[HTTP] GET... failed, error: %s\n", http.errorToString(httpCode).c_str());
-        }
-        http.end();
-    } else {
-      digitalWrite(ledSuccess, HIGH);  
+  if (rfid.available() > 0) {
+    // read the incoming byte:
+    readVal = rfid.read();
+    
+    // a "2" signals the beginning of a tag
+    if (readVal == 2) {
+      counter = 0; // start reading
+    } 
+    // a "3" signals the end of a tag
+    else if (readVal == 3) {
+      // process the tag we just read
+      processTag();
+      
+      // clear serial to prevent multiple reads
+      clearSerial();
+      
+      // reset reading state
+      counter = -1;
     }
-    digitalWrite(ledSuccess, LOW); 
-    delay(1000);
+    // if we are in the middle of reading a tag
+    else if (counter >= 0) {
+      // save valuee
+      readData[counter] = readVal;
+      
+      // increment counter
+      ++counter;
+    } 
+  }
+  digitalWrite(ledSuccess, LOW);
 }
+
